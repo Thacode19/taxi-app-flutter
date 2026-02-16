@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "330348361795",
+    "project_id": "kingdontaxiservices",
+    "storage_bucket": "kingdontaxiservices.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:330348361795:android:23c4a8cd285f9f14ae3cf6",
+        "android_client_info": {
+          "package_name": "com.example.taxi_passenger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3zDCGhsLGw9PAEYvt1v1uNvDuinmRnbk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
