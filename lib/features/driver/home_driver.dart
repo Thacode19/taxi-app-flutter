@@ -3,16 +3,32 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/firestore_service.dart';
 import 'driver_history.dart';
+import '../../services/location_service.dart';
+import 'dart:async';
+import 'package:geolocator/geolocator.dart';
 
 
-class DriverHome extends StatelessWidget {
+
+
+class DriverHome extends StatefulWidget {
+  
   const DriverHome({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final firestore = FirestoreService();
-    final driver = FirebaseAuth.instance.currentUser!;
+  State<DriverHome> createState()=> _DriverHomeState();
+  
 
+}
+
+class _DriverHomeState extends State<DriverHome> {
+final firestore = FirestoreService();
+    final driver = FirebaseAuth.instance.currentUser!;
+    StreamSubscription<Position>? _positionSubscription;
+
+
+@override
+  Widget build(BuildContext context) {
+    
     return Scaffold(
       appBar: 
       //AppBar(title: const Text("Driver Home")),
@@ -49,6 +65,7 @@ class DriverHome extends StatelessWidget {
         final userData =
             snapshot.data!.data() as Map<String, dynamic>;
         final earnings = userData['earnings'] ?? 0;
+        
 
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -177,6 +194,7 @@ Widget _buildActiveRideUI(
                 rideId: ride.id,
                 status: 'ongoing',
               );
+              _startTracking(ride.id);
             },
           ),
 
@@ -188,6 +206,8 @@ Widget _buildActiveRideUI(
                 rideId: ride.id,
                 status: 'completed',
               );
+                _stopTracking();
+
             },
           ),
       ],
@@ -195,5 +215,56 @@ Widget _buildActiveRideUI(
   );
 }
 
+@override
+void dispose() {
+  _stopTracking();
+  super.dispose();
+}
+
+
+@override
+void initState() {
+  super.initState();
+  _testGPS();
+}
+
+Future<void> _testGPS() async {
+  final locationService = LocationService();
+  final position = await locationService.getCurrentLocation();
+  print("Latitude: ${position.latitude}");
+  print("Longitude: ${position.longitude}");
+}
+
+void _startTracking(String rideId) {
+  final locationService = LocationService();
+
+  _positionSubscription =
+      Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((Position position) async {
+
+    await FirebaseFirestore.instance
+        .collection('rides')
+        .doc(rideId)
+        .update({
+      'driverLat': position.latitude,
+      'driverLng': position.longitude,
+    });
+
+    print("Updated location: ${position.latitude}, ${position.longitude}");
+  });
+}
+
+void _stopTracking() {
+  _positionSubscription?.cancel();
+  _positionSubscription = null;
+}
+
 
 }
+  
+
+
