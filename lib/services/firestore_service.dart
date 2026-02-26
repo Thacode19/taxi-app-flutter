@@ -3,6 +3,7 @@ import '../models/user_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final rides = FirebaseFirestore.instance.collection('rides');
 
   Future<void> createUser(AppUser user) async {
     await _db.collection('users').doc(user.uid).set(user.toMap());
@@ -13,6 +14,25 @@ class FirestoreService {
     if (!doc.exists) return null;
     return AppUser.fromMap(doc.id,doc.data()!);
   }
+
+  
+  Future<String>createRit({required String passengerId,
+    required String pickup,
+    required String destination, 
+    }) async {
+      DocumentReference doc = await rides.add({
+      'passengerId': passengerId,
+      'pickup': pickup,
+      'destination': destination,
+      'status': 'waiting',
+
+      // tijdelijk
+      'driverLat': 5.8520,
+      'driverLng': -55.2038,
+    });
+
+    return doc.id;
+    }
 
   Future<void> createRide({
   required String passengerId,
