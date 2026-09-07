@@ -168,10 +168,14 @@ class _MapScreenState extends State<MapScreen> {
         final data = json.decode(response.body);
         final coords =
             data['routes'][0]['geometry']['coordinates'] as List<dynamic>;
-        routePoints =
-            coords.map((e) => LatLng(e[1] as double, e[0] as double)).toList();
-        routeDistance = data['routes'][0]['distance'];
-        routeDuration = data['routes'][0]['duration'];
+        routePoints = coords
+            .map((e) => LatLng(
+                  (e[1] as num).toDouble(),
+                  (e[0] as num).toDouble(),
+                ))
+            .toList();
+        routeDistance = (data['routes'][0]['distance'] as num).toDouble();
+        routeDuration = (data['routes'][0]['duration'] as num).toDouble();
         setState(() {});
       }
     } catch (e) {
