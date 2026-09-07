@@ -227,6 +227,15 @@ class _MapScreenState extends State<MapScreen> {
     try {
       setState(() => isOrdering = true);
 
+      final distanceKm = (routeDistance ?? 0) / 1000;
+
+      // Simpele prijsformule: basisbedrag + per km, met een minimumtarief.
+      // Later te vervangen door een echte tariefberekening.
+      const baseFare = 3.0;
+      const perKm = 2.0;
+      double price = baseFare + (perKm * distanceKm);
+      if (price < 5) price = 5;
+
       final rideRef =
           await FirebaseFirestore.instance.collection('rides').add({
         'passengerId': user.uid,
@@ -240,7 +249,8 @@ class _MapScreenState extends State<MapScreen> {
           searchedLocation!.latitude,
           searchedLocation!.longitude,
         ),
-        'distanceKm': (routeDistance ?? 0) / 1000,
+        'distanceKm': distanceKm,
+        'price': price,
         'createdAt': FieldValue.serverTimestamp(),
       });
 

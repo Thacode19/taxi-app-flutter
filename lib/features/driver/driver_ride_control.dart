@@ -94,13 +94,24 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     setState(() => isUpdating = true);
 
     try {
-      await FirebaseFirestore.instance
-          .collection('rides')
-          .doc(widget.rideId)
-          .update({
+      final rideRef =
+          FirebaseFirestore.instance.collection('rides').doc(widget.rideId);
+
+      await rideRef.update({
         'status': status,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      if (status == 'completed') {
+        final rideSnap = await rideRef.get();
+        final price = (rideSnap.data() as Map<String, dynamic>?)?['price'];
+        if (price != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.driverId)
+              .update({'earnings': FieldValue.increment(price)});
+        }
+      }
 
       if (status == 'completed' || status == 'cancelled') {
         await liveGps?.cancel();

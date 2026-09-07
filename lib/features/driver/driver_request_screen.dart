@@ -145,7 +145,7 @@ class _DriverRequestScreenState extends State<DriverRequestScreen> {
     final rides = await FirebaseFirestore.instance
         .collection('rides')
         .where('driverId', isEqualTo: widget.driverId)
-        .where('status', whereIn: ['accepted', 'in_progress'])
+        .where('status', whereIn: ['accepted', 'arrived', 'started'])
         .limit(1)
         .get();
 
