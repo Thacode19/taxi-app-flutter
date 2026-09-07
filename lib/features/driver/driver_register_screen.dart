@@ -15,6 +15,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final email = TextEditingController();
   final password = TextEditingController();
   final vehicle = TextEditingController();
+  final licenseNumber = TextEditingController();
+  final plateNumber = TextEditingController();
 
   bool loading = false;
 
@@ -26,6 +28,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       email: email.text.trim(),
       password: password.text.trim(),
       vehicle: vehicle.text.trim(),
+      licenseNumber: licenseNumber.text.trim(),
+      plateNumber: plateNumber.text.trim(),
     );
 
     setState(() => loading = false);
@@ -67,6 +71,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
             input("Email", email),
             input("Password", password, hide: true),
             input("Voertuig", vehicle),
+            input("Rijbewijsnummer", licenseNumber),
+            input("Kenteken", plateNumber),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: loading ? null : register,

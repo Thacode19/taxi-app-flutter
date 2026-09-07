@@ -48,6 +48,8 @@ Future<String?> registerDriver({
   required String email,
   required String password,
   required String vehicle,
+  required String licenseNumber,
+  required String plateNumber,
 }) async {
   try {
     final cred = await _auth.createUserWithEmailAndPassword(
@@ -61,7 +63,11 @@ Future<String?> registerDriver({
       'email': email,
       'role': 'driver',
       'vehicle': vehicle,
+      'licenseNumber': licenseNumber,
+      'plateNumber': plateNumber,
+      'verificationStatus': 'pending', // pending | approved | rejected
       'isOnline': false,
+      'earnings': 0,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
