@@ -14,6 +14,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final name = TextEditingController();
   final email = TextEditingController();
   final password = TextEditingController();
+  final phone = TextEditingController();
   final vehicle = TextEditingController();
   final licenseNumber = TextEditingController();
   final plateNumber = TextEditingController();
@@ -27,6 +28,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       name: name.text.trim(),
       email: email.text.trim(),
       password: password.text.trim(),
+      phone: phone.text.trim(),
       vehicle: vehicle.text.trim(),
       licenseNumber: licenseNumber.text.trim(),
       plateNumber: plateNumber.text.trim(),
@@ -70,6 +72,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
             input("Naam", name),
             input("Email", email),
             input("Password", password, hide: true),
+            input("Telefoonnummer", phone),
             input("Voertuig", vehicle),
             input("Rijbewijsnummer", licenseNumber),
             input("Kenteken", plateNumber),

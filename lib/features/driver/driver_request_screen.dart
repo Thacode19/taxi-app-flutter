@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'driver_ride_control.dart';
+import 'driver_history.dart';
 
 class DriverRequestScreen extends StatefulWidget {
   final String driverId;
@@ -177,6 +178,18 @@ class _DriverRequestScreenState extends State<DriverRequestScreen> {
       appBar: AppBar(
         title: const Text("Driver Dashboard"),
         actions: [
+          IconButton(
+            tooltip: "Verdiensten & ritten",
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const DriverHistoryScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             onPressed: () => logout(context),
             icon: const Icon(Icons.logout),

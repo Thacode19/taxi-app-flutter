@@ -124,6 +124,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
           final pickup = data['pickup'] as GeoPoint?;
           final destination = data['destination'] as GeoPoint?;
           final driverLocation = data['driverLocation'];
+          final driverId = data['driverId'] as String?;
 
           // ===============================
           // COMPLETED / CANCELLED
@@ -302,6 +303,83 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                   ),
                 ),
               ),
+
+              // Chauffeur-info onderaan
+              if (driverId != null)
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(driverId)
+                        .snapshots(),
+                    builder: (context, driverSnap) {
+                      if (!driverSnap.hasData || !driverSnap.data!.exists) {
+                        return const SizedBox.shrink();
+                      }
+
+                      final driver =
+                          driverSnap.data!.data() as Map<String, dynamic>;
+
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.95),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 6,
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            const CircleAvatar(
+                              radius: 24,
+                              child: Icon(Icons.person),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    driver['name'] ?? 'Chauffeur',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  Text(
+                                    "${driver['vehicle'] ?? ''}"
+                                    "${driver['plateNumber'] != null ? ' • ${driver['plateNumber']}' : ''}",
+                                    style: const TextStyle(
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (driver['phone'] != null)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Icon(Icons.phone, size: 18),
+                                  Text(
+                                    driver['phone'],
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
             ],
           );
         },
