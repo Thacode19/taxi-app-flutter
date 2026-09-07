@@ -48,10 +48,7 @@ class DriverHistoryScreen extends StatelessWidget {
                       "${ride['pickup']} → ${ride['destination']}"),
                   subtitle: Text(
                       "Status: ${ride['status']}"),
-                  trailing: 
-                  //Text("€${ride['price']}"),
-                  Text("srd$price")
-                  ),
+                  trailing: Text("srd$price"),
               );
             },
           );

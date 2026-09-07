@@ -93,19 +93,6 @@ Stream<QuerySnapshot> getDriverActiveRide(String driverId) {
 }
 
 
-// Future<void> updateRideStatus({
-//   required String rideId,
-//   required String status,
-// }) async {
-
-
-  
-//   await _db.collection('rides').doc(rideId).update({
-//     'status': status,
-//   });
-// }
-
-
 Future<void> updateRideStatus({
   required String rideId,
   required String status,

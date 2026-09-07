@@ -91,36 +91,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       : const Text("Login"),
                 ),
               ),
-              // SizedBox(
-              //   width: double.infinity,
-              //   child: ElevatedButton(
-              //     onPressed: () {
-              //       Navigator.push(
-              //         context,
-              //         MaterialPageRoute(
-              //           builder: (context) => const RegisterScreen(),
-              //         ),
-              //       );
-              //     },
-              //     child
-                   
-              //         : const Text("Register"),
-              //   ),
-              // ),
               SizedBox(
-  width: double.infinity,
-  child: ElevatedButton(
-    onPressed: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const RegisterScreen(),
-        ),
-      );
-    },
-    child: const Text("Register"),
-  ),
-),
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RegisterScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text("Register"),
+                ),
+              ),
             ],
           ),
         ),
