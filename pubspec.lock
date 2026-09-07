@@ -256,6 +256,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  free_map:
+    dependency: "direct main"
+    description:
+      name: free_map
+      sha256: aa69fb9c4c5fa456b7fe900d74e867975b24bbf701a39024f975938b9169ea22
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.0"
   geoclue:
     dependency: transitive
     description:
@@ -401,7 +409,7 @@ packages:
     source: hosted
     version: "0.15.6"
   http:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: http
       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"

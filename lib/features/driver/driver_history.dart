@@ -45,7 +45,7 @@ class DriverHistoryScreen extends StatelessWidget {
                 margin: const EdgeInsets.all(10),
                 child: ListTile(
                   title: Text(
-                      "${ride['pickupText']} → ${ride['destinationText']}"),
+                      "${ride['pickup']} → ${ride['destination']}"),
                   subtitle: Text(
                       "Status: ${ride['status']}"),
                   trailing: 
