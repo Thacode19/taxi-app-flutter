@@ -26,6 +26,13 @@ class DriverHistoryScreen extends StatelessWidget {
                   ? ((snap.data!.data() as Map<String, dynamic>)['earnings'] ??
                       0)
                   : 0;
+              final userData = snap.hasData && snap.data!.exists
+                  ? snap.data!.data() as Map<String, dynamic>
+                  : <String, dynamic>{};
+              final ratingCount = userData['ratingCount'] ?? 0;
+              final ratingSum = userData['ratingSum'] ?? 0;
+              final avgRating =
+                  ratingCount > 0 ? (ratingSum / ratingCount) : null;
 
               return Container(
                 width: double.infinity,
@@ -51,6 +58,21 @@ class DriverHistoryScreen extends StatelessWidget {
                         color: Colors.green,
                       ),
                     ),
+                    if (avgRating != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.star,
+                              size: 18, color: Colors.amber),
+                          const SizedBox(width: 4),
+                          Text(
+                            "${avgRating.toStringAsFixed(1)} ($ratingCount beoordelingen)",
+                            style: const TextStyle(color: Colors.black54),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               );

@@ -21,6 +21,46 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
   List<LatLng> routePoints = [];
   String? lastRouteKey;
 
+  int selectedStars = 0;
+  final commentController = TextEditingController();
+  bool submittingRating = false;
+
+  Future<void> submitRating(String? driverId) async {
+    if (selectedStars == 0) return;
+    setState(() => submittingRating = true);
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('rides')
+          .doc(widget.rideId)
+          .update({
+        'rating': selectedStars,
+        'comment': commentController.text.trim(),
+        'ratedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (driverId != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(driverId)
+            .update({
+          'ratingSum': FieldValue.increment(selectedStars),
+          'ratingCount': FieldValue.increment(1),
+        });
+      }
+    } catch (e) {
+      debugPrint("Rating error: $e");
+    }
+
+    if (mounted) setState(() => submittingRating = false);
+  }
+
+  @override
+  void dispose() {
+    commentController.dispose();
+    super.dispose();
+  }
+
   // ===============================
   // ROUTE OPHALEN
   // ===============================
@@ -45,8 +85,11 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final coords = data['routes'][0]['geometry']['coordinates'];
-        final points =
-            coords.map<LatLng>((c) => LatLng(c[1], c[0])).toList();
+        final points = coords
+            .map<LatLng>(
+              (c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()),
+            )
+            .toList();
 
         if (mounted) {
           setState(() => routePoints = points);
@@ -130,33 +173,98 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
           // COMPLETED / CANCELLED
           // ===============================
           if (status == 'completed' || status == 'cancelled') {
+            final alreadyRated = data['rating'] != null;
+
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    status == 'completed'
-                        ? Icons.check_circle
-                        : Icons.cancel,
-                    size: 90,
-                    color:
-                        status == 'completed' ? Colors.green : Colors.red,
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    message(status),
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      status == 'completed'
+                          ? Icons.check_circle
+                          : Icons.cancel,
+                      size: 90,
+                      color:
+                          status == 'completed' ? Colors.green : Colors.red,
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () =>
-                        Navigator.popUntil(context, (route) => route.isFirst),
-                    child: const Text("Terug Home"),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    Text(
+                      message(status),
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    if (status == 'completed' && !alreadyRated) ...[
+                      const Text(
+                        "Hoe was je rit?",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (i) {
+                          final starIndex = i + 1;
+                          return IconButton(
+                            iconSize: 36,
+                            icon: Icon(
+                              starIndex <= selectedStars
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color: Colors.amber,
+                            ),
+                            onPressed: () =>
+                                setState(() => selectedStars = starIndex),
+                          );
+                        }),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                        ),
+                        child: TextField(
+                          controller: commentController,
+                          maxLines: 2,
+                          decoration: const InputDecoration(
+                            hintText: "Opmerking (optioneel)",
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: selectedStars == 0 || submittingRating
+                            ? null
+                            : () => submitRating(driverId),
+                        child: submittingRating
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text("Beoordeling versturen"),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    if (status == 'completed' && alreadyRated) ...[
+                      const Icon(Icons.check, color: Colors.green),
+                      const Text("Bedankt voor je beoordeling!"),
+                      const SizedBox(height: 20),
+                    ],
+                    ElevatedButton(
+                      onPressed: () => Navigator.popUntil(
+                          context, (route) => route.isFirst),
+                      child: const Text("Terug Home"),
+                    ),
+                  ],
+                ),
               ),
             );
           }
@@ -322,6 +430,11 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
 
                       final driver =
                           driverSnap.data!.data() as Map<String, dynamic>;
+                      final ratingCount = driver['ratingCount'] ?? 0;
+                      final ratingSum = driver['ratingSum'] ?? 0;
+                      final avgRating = ratingCount > 0
+                          ? (ratingSum / ratingCount)
+                          : null;
 
                       return Container(
                         padding: const EdgeInsets.all(14),
@@ -353,6 +466,21 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                                       fontSize: 16,
                                     ),
                                   ),
+                                  if (avgRating != null)
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.star,
+                                            size: 14, color: Colors.amber),
+                                        const SizedBox(width: 2),
+                                        Text(
+                                          "${avgRating.toStringAsFixed(1)} ($ratingCount)",
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   Text(
                                     "${driver['vehicle'] ?? ''}"
                                     "${driver['plateNumber'] != null ? ' • ${driver['plateNumber']}' : ''}",
