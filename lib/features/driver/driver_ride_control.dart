@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../utils/fare_calculator.dart';
-import 'driver_request_screen.dart'; // ← importeer je dashboard scherm
+import 'driver_request_screen.dart';
 
 class DriverRideControlScreen extends StatefulWidget {
   final String rideId;
-  final String driverId; // ← nieuw: nodig om terug te navigeren
+  final String driverId;
 
   const DriverRideControlScreen({
     super.key,
@@ -22,11 +22,16 @@ class DriverRideControlScreen extends StatefulWidget {
 
 class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
   StreamSubscription<Position>? liveGps;
+  Timer? _tickTimer;
   bool isUpdating = false;
   bool isCancelling = false;
+  bool isTogglingWait = false;
 
-  // Voor de live kilometerteller: alleen actief zolang de rit 'started' is.
+  // Bijgehouden vanuit de Firestore-stream, gebruikt door de GPS-listener
+  // om te beslissen of er afstand/kosten opgeteld moeten worden.
   String _rideStatus = 'accepted';
+  bool _isWaiting = false;
+
   Position? _lastMeterPosition;
   double _liveDistanceKm = 0;
 
@@ -34,6 +39,11 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
   void initState() {
     super.initState();
     startGps();
+    // Enkel voor het live bijwerken van de stopwatch-weergave (1x/sec),
+    // schrijft niets naar Firestore.
+    _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> startGps() async {
@@ -61,10 +71,9 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
         distanceFilter: 10,
       ),
     ).listen((pos) async {
-      // Kilometerteller: alleen optellen zolang de rit daadwerkelijk
-      // 'started' is. Bij de eerste positie na het starten leggen we
-      // enkel het startpunt vast, zonder afstand toe te voegen.
-      if (_rideStatus == 'started') {
+      // Kilometerteller: alleen optellen als de rit 'started' is EN er
+      // niet op dit moment een wachtpauze loopt (bijv. tussenstop).
+      if (_rideStatus == 'started' && !_isWaiting) {
         if (_lastMeterPosition != null) {
           final meters = Geolocator.distanceBetween(
             _lastMeterPosition!.latitude,
@@ -76,8 +85,8 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
         }
         _lastMeterPosition = pos;
       } else {
-        // Nog niet gestart (of al klaar) — geen basispunt vasthouden,
-        // zodat de eerste 'started'-positie altijd het echte startpunt is.
+        // Tijdens wachten of vóór het starten: geen basispunt vasthouden,
+        // zodat na hervatten geen "sprong" wordt meegeteld.
         _lastMeterPosition = null;
       }
 
@@ -107,12 +116,7 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     });
   }
 
-  // ===============================
-  // NAVIGEER TERUG NAAR DASHBOARD
-  // ===============================
   void _goToDashboard() {
-    // pushAndRemoveUntil vervangt de hele stack met het dashboard
-    // zodat de chauffeur niet terug kan naar het rit-scherm
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
@@ -122,6 +126,34 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     );
   }
 
+  /// Sluit de huidige wachtperiode af (of dat nu de initiele aankomst-wacht
+  /// is, of een tussenstop tijdens de rit) en telt de verstreken tijd op
+  /// bij de totale wachttijd van de rit.
+  Future<Map<String, dynamic>> _endCurrentWaitPeriod(
+    Map<String, dynamic> rideData,
+  ) async {
+    final currentWaitStartedAt =
+        rideData['currentWaitStartedAt'] as Timestamp?;
+    final existingTotal =
+        (rideData['totalWaitSeconds'] as num?)?.toDouble() ?? 0;
+
+    double newTotal = existingTotal;
+    if (currentWaitStartedAt != null) {
+      final elapsed =
+          DateTime.now().difference(currentWaitStartedAt.toDate());
+      newTotal += elapsed.inSeconds;
+    }
+
+    final waitCost =
+        FareCalculator.calculateWaitCost(Duration(seconds: newTotal.round()));
+
+    return {
+      'totalWaitSeconds': newTotal,
+      'waitCost': waitCost,
+      'isWaiting': false,
+    };
+  }
+
   Future<void> setStatus(String status) async {
     if (isUpdating) return;
     setState(() => isUpdating = true);
@@ -129,6 +161,8 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     try {
       final rideRef =
           FirebaseFirestore.instance.collection('rides').doc(widget.rideId);
+      final rideSnap = await rideRef.get();
+      final rideData = rideSnap.data() as Map<String, dynamic>? ?? {};
 
       final update = <String, dynamic>{
         'status': status,
@@ -136,49 +170,38 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
       };
 
       if (status == 'arrived') {
+        // Start meteen de wachtklok bij aankomst.
         update['arrivedAt'] = FieldValue.serverTimestamp();
+        update['isWaiting'] = true;
+        update['currentWaitStartedAt'] = FieldValue.serverTimestamp();
+        update['totalWaitSeconds'] = 0;
       }
 
-      double waitCost = 0;
-
       if (status == 'started') {
-        // Bereken wachtgeld op basis van de tijd tussen aankomst en start.
-        final rideSnap = await rideRef.get();
-        final rideData = rideSnap.data() as Map<String, dynamic>?;
-        final arrivedAt = rideData?['arrivedAt'] as Timestamp?;
-
-        if (arrivedAt != null) {
-          final waitDuration = DateTime.now().difference(arrivedAt.toDate());
-          waitCost = FareCalculator.calculateWaitCost(waitDuration);
-          update['waitMinutes'] = waitDuration.inSeconds / 60.0;
-          update['waitCost'] = waitCost;
-        }
-
+        // Sluit de aankomst-wachtperiode af en start de kilometerteller.
+        update.addAll(await _endCurrentWaitPeriod(rideData));
         update['startedAt'] = FieldValue.serverTimestamp();
 
-        // Reset de kilometerteller voor deze rit
         _liveDistanceKm = 0;
         _lastMeterPosition = null;
         update['liveDistanceKm'] = 0;
         update['liveFare'] = FareCalculator.liveFare(0);
       }
 
-      // Zet de lokale status VOOR de update, zodat de GPS-listener
-      // direct weet dat hij (niet) moet meten.
       _rideStatus = status;
+      _isWaiting = update['isWaiting'] == true;
 
       await rideRef.update(update);
 
       if (status == 'completed') {
-        final rideSnap = await rideRef.get();
-        final rideData = rideSnap.data() as Map<String, dynamic>?;
+        final finalSnap = await rideRef.get();
+        final finalData = finalSnap.data() as Map<String, dynamic>? ?? {};
 
-        final liveFareValue = (rideData?['liveFare'] as num?)?.toDouble();
-        final basePrice = (rideData?['price'] as num?)?.toDouble() ?? 0;
-        final storedWaitCost = (rideData?['waitCost'] as num?)?.toDouble() ?? 0;
+        final liveFareValue = (finalData['liveFare'] as num?)?.toDouble();
+        final basePrice = (finalData['price'] as num?)?.toDouble() ?? 0;
+        final storedWaitCost =
+            (finalData['waitCost'] as num?)?.toDouble() ?? 0;
 
-        // Eindprijs: de live-gemeten afstand als die er is (dat is de
-        // daadwerkelijk gereden route), anders de vooraf geschatte prijs.
         final tripFare =
             (liveFareValue != null && liveFareValue > 0) ? liveFareValue : basePrice;
         final finalPrice = tripFare + storedWaitCost;
@@ -204,6 +227,41 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     }
 
     if (mounted) setState(() => isUpdating = false);
+  }
+
+  /// Chauffeur zet de rit "on hold" tijdens een tussenstop van de passagier
+  /// (bijv. snel de winkel in). Kilometerteller pauzeert, wachtklok start.
+  Future<void> toggleMidRideWait() async {
+    if (isTogglingWait) return;
+    setState(() => isTogglingWait = true);
+
+    try {
+      final rideRef =
+          FirebaseFirestore.instance.collection('rides').doc(widget.rideId);
+      final rideSnap = await rideRef.get();
+      final rideData = rideSnap.data() as Map<String, dynamic>? ?? {};
+      final currentlyWaiting = rideData['isWaiting'] == true;
+
+      if (currentlyWaiting) {
+        // Hervatten: sluit deze wachtperiode af.
+        final update = await _endCurrentWaitPeriod(rideData);
+        _isWaiting = false;
+        _lastMeterPosition = null; // voorkom sprong bij hervatten
+        await rideRef.update(update);
+      } else {
+        // Pauzeren: start een nieuwe wachtperiode.
+        _isWaiting = true;
+        await rideRef.update({
+          'isWaiting': true,
+          'currentWaitStartedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      debugPrint("Wait toggle error: $e");
+      _showError("Er ging iets mis. Probeer opnieuw.");
+    }
+
+    if (mounted) setState(() => isTogglingWait = false);
   }
 
   Future<void> cancelRide() async {
@@ -265,6 +323,7 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
   @override
   void dispose() {
     liveGps?.cancel();
+    _tickTimer?.cancel();
     super.dispose();
   }
 
@@ -293,6 +352,12 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     }
   }
 
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -318,25 +383,40 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
           final status = data['status'] as String? ?? 'unknown';
           final bool isFinished = status == 'completed' || status == 'cancelled';
 
-          // Houd de laatst bekende status bij voor de GPS-listener,
-          // zonder een extra setState te veroorzaken.
           _rideStatus = status;
+          _isWaiting = data['isWaiting'] == true;
 
           final liveDistanceKm = (data['liveDistanceKm'] as num?)?.toDouble();
           final liveFare = (data['liveFare'] as num?)?.toDouble();
-          final waitCost = (data['waitCost'] as num?)?.toDouble();
           final finalPrice = (data['finalPrice'] as num?)?.toDouble();
+          final storedWaitCost = (data['waitCost'] as num?)?.toDouble() ?? 0;
+          final totalWaitSeconds =
+              (data['totalWaitSeconds'] as num?)?.toDouble() ?? 0;
+          final currentWaitStartedAt =
+              data['currentWaitStartedAt'] as Timestamp?;
+
+          // Live stopwatch: totale wachttijd tot nu toe (al afgesloten
+          // periodes + eventuele lopende periode).
+          double liveWaitSeconds = totalWaitSeconds;
+          if (_isWaiting && currentWaitStartedAt != null) {
+            liveWaitSeconds += DateTime.now()
+                .difference(currentWaitStartedAt.toDate())
+                .inSeconds;
+          }
+          final liveWaitCost = FareCalculator.calculateWaitCost(
+            Duration(seconds: liveWaitSeconds.round()),
+          );
 
           Widget? actionBtn;
           if (status == 'accepted') {
             actionBtn = _actionButton("Ik ben gearriveerd", "arrived", Colors.blue);
           } else if (status == 'arrived') {
             actionBtn = _actionButton("Start Rit", "started", Colors.green);
-          } else if (status == 'started') {
+          } else if (status == 'started' && !_isWaiting) {
             actionBtn = _actionButton("Voltooi Rit", "completed", Colors.green.shade700);
           }
 
-          return Padding(
+          return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -359,22 +439,69 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
                     ),
                   ),
 
-                // Live kilometerteller, zichtbaar zodra de rit gestart is
-                if (status == 'started' && liveDistanceKm != null) ...[
-                  const SizedBox(height: 24),
+                // Live stopwatch, zichtbaar tijdens elke wachtperiode
+                // (aankomst-wacht óf een tussenstop tijdens de rit).
+                if (_isWaiting && !isFinished) ...[
+                  const SizedBox(height: 20),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.green.shade50,
+                      color: Colors.orange.shade50,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.green),
+                      border: Border.all(color: Colors.orange),
                     ),
                     child: Column(
                       children: [
                         const Text(
-                          "Live meter",
+                          "Wachttijd",
                           style: TextStyle(color: Colors.black54),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatDuration(
+                            Duration(seconds: liveWaitSeconds.round()),
+                          ),
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        Text(
+                          liveWaitCost > 0
+                              ? "Wachtgeld: srd ${liveWaitCost.toStringAsFixed(2)}"
+                              : "Nog binnen gratis ${FareCalculator.freeWaitMinutes} min",
+                          style: TextStyle(
+                            color: liveWaitCost > 0
+                                ? Colors.orange.shade800
+                                : Colors.black54,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Live kilometerteller, zichtbaar zodra de rit gestart is
+                if (status == 'started' && liveDistanceKm != null) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _isWaiting ? Colors.grey.shade200 : Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _isWaiting ? Colors.grey : Colors.green,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          _isWaiting ? "Live meter (gepauzeerd)" : "Live meter",
+                          style: const TextStyle(color: Colors.black54),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -387,22 +514,14 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
                         if (liveFare != null)
                           Text(
                             "srd ${liveFare.toStringAsFixed(2)}",
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 20,
-                              color: Colors.green,
+                              color: _isWaiting ? Colors.black45 : Colors.green,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                       ],
                     ),
-                  ),
-                ],
-
-                if (waitCost != null && waitCost > 0 && !isFinished) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    "Wachtgeld doorberekend: srd ${waitCost.toStringAsFixed(2)}",
-                    style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
                   ),
                 ],
 
@@ -412,18 +531,39 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
                     "Totaal: srd ${finalPrice.toStringAsFixed(2)}",
                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  if (waitCost != null && waitCost > 0)
+                  if (storedWaitCost > 0)
                     Text(
-                      "(waarvan srd ${waitCost.toStringAsFixed(2)} wachtgeld)",
+                      "(waarvan srd ${storedWaitCost.toStringAsFixed(2)} wachtgeld)",
                       style: const TextStyle(color: Colors.black54),
                     ),
                 ],
 
-                const SizedBox(height: 40),
+                const SizedBox(height: 30),
 
                 if (actionBtn != null) actionBtn,
 
-                // Terug naar dashboard — alleen als rit klaar is
+                // Wachten/hervatten-knop — alleen tijdens een lopende rit
+                if (status == 'started') ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orange.shade800,
+                        side: BorderSide(color: Colors.orange.shade800),
+                      ),
+                      onPressed: isTogglingWait ? null : toggleMidRideWait,
+                      icon: Icon(_isWaiting ? Icons.play_arrow : Icons.pause),
+                      label: Text(
+                        _isWaiting
+                            ? "Doorgaan (tussenstop klaar)"
+                            : "Wachten (tussenstop passagier)",
+                      ),
+                    ),
+                  ),
+                ],
+
                 if (isFinished) ...[
                   const SizedBox(height: 20),
                   SizedBox(
@@ -441,7 +581,6 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
                   ),
                 ],
 
-                // Annuleerknop — alleen als rit nog bezig is
                 if (!isFinished) ...[
                   const SizedBox(height: 20),
                   SizedBox(

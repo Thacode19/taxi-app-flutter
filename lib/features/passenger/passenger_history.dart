@@ -34,14 +34,34 @@ class PassengerHistoryScreen extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('rides')
             .where('passengerId', isEqualTo: passenger.uid)
-            .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  "Kon ritten niet laden:\n${snapshot.error}",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            );
+          }
+
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final rides = snapshot.data!.docs;
+          final rides = snapshot.data!.docs.toList()
+            ..sort((a, b) {
+              final aTime = (a.data() as Map<String, dynamic>)['createdAt']
+                  as Timestamp?;
+              final bTime = (b.data() as Map<String, dynamic>)['createdAt']
+                  as Timestamp?;
+              if (aTime == null || bTime == null) return 0;
+              return bTime.compareTo(aTime); // nieuwste eerst
+            });
 
           if (rides.isEmpty) {
             return const Center(child: Text("Nog geen ritten gemaakt"));

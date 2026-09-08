@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../services/notification_service.dart';
+import '../../utils/fare_calculator.dart';
 
 class RideTrackingScreen extends StatefulWidget {
   final String rideId;
@@ -28,6 +30,23 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
 
   String? _lastNotifiedStatus;
   bool _isFirstStatusUpdate = true;
+
+  Timer? _tickTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Enkel voor het live bijwerken van de stopwatch-weergave (1x/sec).
+    _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
+  }
 
   void _notifyStatusChangeIfNeeded(String status) {
     if (_isFirstStatusUpdate) {
@@ -78,6 +97,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
   @override
   void dispose() {
     commentController.dispose();
+    _tickTimer?.cancel();
     super.dispose();
   }
 
@@ -193,6 +213,21 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
           final liveFare = (data['liveFare'] as num?)?.toDouble();
           final finalPrice = (data['finalPrice'] as num?)?.toDouble();
           final waitCost = (data['waitCost'] as num?)?.toDouble();
+          final isWaiting = data['isWaiting'] == true;
+          final totalWaitSeconds =
+              (data['totalWaitSeconds'] as num?)?.toDouble() ?? 0;
+          final currentWaitStartedAt =
+              data['currentWaitStartedAt'] as Timestamp?;
+
+          double liveWaitSeconds = totalWaitSeconds;
+          if (isWaiting && currentWaitStartedAt != null) {
+            liveWaitSeconds += DateTime.now()
+                .difference(currentWaitStartedAt.toDate())
+                .inSeconds;
+          }
+          final liveWaitCost = FareCalculator.calculateWaitCost(
+            Duration(seconds: liveWaitSeconds.round()),
+          );
 
           // ===============================
           // COMPLETED / CANCELLED
@@ -452,10 +487,65 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                 ),
               ),
 
+              // Wachttijd-stopwatch: zichtbaar bij aankomst-wacht én bij
+              // een tussenstop tijdens de rit
+              if (isWaiting && status != 'completed' && status != 'cancelled')
+                Positioned(
+                  top: 76,
+                  left: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black26, blurRadius: 6),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.timer_outlined,
+                                size: 18, color: Colors.orange),
+                            const SizedBox(width: 6),
+                            Text(
+                              _formatDuration(
+                                Duration(seconds: liveWaitSeconds.round()),
+                              ),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          liveWaitCost > 0
+                              ? "Wachtgeld: srd ${liveWaitCost.toStringAsFixed(2)}"
+                              : "Gratis wachttijd",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: liveWaitCost > 0
+                                ? Colors.orange.shade800
+                                : Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
               // Live meter tijdens de rit
               if (status == 'started' && liveDistanceKm != null)
                 Positioned(
-                  top: 76,
+                  top: isWaiting ? 132 : 76,
                   left: 16,
                   right: 16,
                   child: Container(
