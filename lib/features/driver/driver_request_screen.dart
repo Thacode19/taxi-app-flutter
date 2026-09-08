@@ -1,10 +1,12 @@
 
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+import '../../services/notification_service.dart';
 import 'driver_ride_control.dart';
 import 'driver_history.dart';
 
@@ -23,10 +25,45 @@ class _DriverRequestScreenState extends State<DriverRequestScreen> {
 
   final Map<String, String> _addressCache = {};
 
+  StreamSubscription<QuerySnapshot>? _newRideSub;
+  bool _isFirstRideSnapshot = true;
+
   @override
   void initState() {
     super.initState();
     _checkActiveRide();
+    _listenForNewRides();
+  }
+
+  void _listenForNewRides() {
+    _newRideSub = FirebaseFirestore.instance
+        .collection('rides')
+        .where('status', isEqualTo: 'searching')
+        .orderBy('createdAt')
+        .snapshots()
+        .listen((snap) {
+      // De allereerste snapshot bevat altijd alle al-bestaande ritten
+      // als 'added' — die willen we niet als nieuw melden.
+      if (_isFirstRideSnapshot) {
+        _isFirstRideSnapshot = false;
+        return;
+      }
+
+      for (final change in snap.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          NotificationService().show(
+            title: "Nieuwe rit beschikbaar!",
+            body: "Er staat een rit klaar om te accepteren.",
+          );
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _newRideSub?.cancel();
+    super.dispose();
   }
 
   Future<String> getAddress(double lat, double lng) async {

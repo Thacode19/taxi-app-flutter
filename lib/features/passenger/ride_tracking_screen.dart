@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../services/notification_service.dart';
 
 class RideTrackingScreen extends StatefulWidget {
   final String rideId;
@@ -24,6 +25,25 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
   int selectedStars = 0;
   final commentController = TextEditingController();
   bool submittingRating = false;
+
+  String? _lastNotifiedStatus;
+  bool _isFirstStatusUpdate = true;
+
+  void _notifyStatusChangeIfNeeded(String status) {
+    if (_isFirstStatusUpdate) {
+      _isFirstStatusUpdate = false;
+      _lastNotifiedStatus = status;
+      return;
+    }
+
+    if (status != _lastNotifiedStatus) {
+      _lastNotifiedStatus = status;
+      NotificationService().show(
+        title: "Update over je rit",
+        body: message(status),
+      );
+    }
+  }
 
   Future<void> submitRating(String? driverId) async {
     if (selectedStars == 0) return;
@@ -163,6 +183,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
           final status = data['status'] as String? ?? '';
+          _notifyStatusChangeIfNeeded(status);
 
           final pickup = data['pickup'] as GeoPoint?;
           final destination = data['destination'] as GeoPoint?;
