@@ -164,15 +164,18 @@ class _DriverRequestScreenState extends State<DriverRequestScreen> {
     final success = await acceptRide(rideId);
 
     if (!mounted) return;
-    setState(() => isAccepting = false);
 
     if (!success) {
+      setState(() => isAccepting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Rit is al door iemand anders gepakt")),
       );
       return;
     }
 
+    // isAccepting blijft bewust 'true' tot aan de navigatie, zodat het
+    // scherm niet even terugflitst naar de normale dashboard-staat
+    // voordat we naar het rit-scherm gaan.
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => DriverRideControlScreen(rideId: rideId,driverId: widget.driverId)),

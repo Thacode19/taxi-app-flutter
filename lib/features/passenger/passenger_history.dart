@@ -92,7 +92,7 @@ class PassengerHistoryScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text("srd $price"),
+                      Text("srd ${(price as num).toStringAsFixed(2)}"),
                       if (rating != null)
                         Row(
                           children: [

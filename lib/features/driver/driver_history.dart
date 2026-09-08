@@ -138,7 +138,9 @@ class DriverHistoryScreen extends StatelessWidget {
                               : "Rit",
                         ),
                         subtitle: Text("Status: $status"),
-                        trailing: Text("srd $price"),
+                        trailing: Text(
+                          "srd ${(price as num).toStringAsFixed(2)}",
+                        ),
                       ),
                     );
                   },
