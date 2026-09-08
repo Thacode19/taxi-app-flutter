@@ -189,6 +189,10 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
           final destination = data['destination'] as GeoPoint?;
           final driverLocation = data['driverLocation'];
           final driverId = data['driverId'] as String?;
+          final liveDistanceKm = (data['liveDistanceKm'] as num?)?.toDouble();
+          final liveFare = (data['liveFare'] as num?)?.toDouble();
+          final finalPrice = (data['finalPrice'] as num?)?.toDouble();
+          final waitCost = (data['waitCost'] as num?)?.toDouble();
 
           // ===============================
           // COMPLETED / CANCELLED
@@ -217,6 +221,21 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    if (status == 'completed' && finalPrice != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        "Totaal: srd ${finalPrice.toStringAsFixed(2)}",
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (waitCost != null && waitCost > 0)
+                        Text(
+                          "(waarvan srd ${waitCost.toStringAsFixed(2)} wachtgeld)",
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                    ],
                     const SizedBox(height: 24),
                     if (status == 'completed' && !alreadyRated) ...[
                       const Text(
@@ -432,6 +451,44 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                   ),
                 ),
               ),
+
+              // Live meter tijdens de rit
+              if (status == 'started' && liveDistanceKm != null)
+                Positioned(
+                  top: 76,
+                  left: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black26, blurRadius: 6),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "${liveDistanceKm.toStringAsFixed(2)} km",
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        if (liveFare != null)
+                          Text(
+                            "srd ${liveFare.toStringAsFixed(2)}",
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
 
               // Chauffeur-info onderaan
               if (driverId != null)

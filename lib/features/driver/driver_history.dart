@@ -102,7 +102,7 @@ class DriverHistoryScreen extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final data =
                         rides[index].data() as Map<String, dynamic>;
-                    final price = data['price'] ?? 0;
+                    final price = data['finalPrice'] ?? data['price'] ?? 0;
                     final distanceKm = data['distanceKm'];
                     final status = data['status'] ?? '';
 

@@ -6,12 +6,14 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'utils/fare_calculator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:taxi_passenger/features/auth/login_screen.dart';
 import './features/passenger/ride_tracking_screen.dart';
+import './features/passenger/passenger_history.dart';
 import './infoscreen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -232,13 +234,7 @@ class _MapScreenState extends State<MapScreen> {
       setState(() => isOrdering = true);
 
       final distanceKm = (routeDistance ?? 0) / 1000;
-
-      // Simpele prijsformule: basisbedrag + per km, met een minimumtarief.
-      // Later te vervangen door een echte tariefberekening.
-      const baseFare = 3.0;
-      const perKm = 2.0;
-      double price = baseFare + (perKm * distanceKm);
-      if (price < 5) price = 5;
+      final price = FareCalculator.estimateFare(distanceKm);
 
       final rideRef =
           await FirebaseFirestore.instance.collection('rides').add({
@@ -328,25 +324,42 @@ class _MapScreenState extends State<MapScreen> {
                 );
               }
 
-              return PopupMenuButton(
-                icon: const Icon(Icons.person),
-                itemBuilder: (context) => [
-                  PopupMenuItem(child: Text("Email: ${user.email}")),
-                  PopupMenuItem(
-                    child: const Text("Logout"),
-                    onTap: () async {
-                      await FirebaseAuth.instance.signOut();
-                    },
-                  ),
-                  PopupMenuItem(
-                    child: const Text("user-info"),
-                    onTap: () {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: "Mijn ritten",
+                    icon: const Icon(Icons.history),
+                    onPressed: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (context) => const TestScreen()),
+                          builder: (_) => const PassengerHistoryScreen(),
+                        ),
                       );
                     },
+                  ),
+                  PopupMenuButton(
+                    icon: const Icon(Icons.person),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(child: Text("Email: ${user.email}")),
+                      PopupMenuItem(
+                        child: const Text("Logout"),
+                        onTap: () async {
+                          await FirebaseAuth.instance.signOut();
+                        },
+                      ),
+                      PopupMenuItem(
+                        child: const Text("user-info"),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => const TestScreen()),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -493,7 +506,9 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 child: Text(
                   "Afstand: ${(routeDistance! / 1000).toStringAsFixed(2)} km"
-                  " | Tijd: ${(routeDuration! / 60).toStringAsFixed(0)} min",
+                  " | Tijd: ${(routeDuration! / 60).toStringAsFixed(0)} min"
+                  "\nGeschatte prijs: srd ${FareCalculator.estimateFare(routeDistance! / 1000).toStringAsFixed(2)}"
+                  " (excl. eventuele wachttijd)",
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
