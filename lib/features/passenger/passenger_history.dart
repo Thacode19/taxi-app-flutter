@@ -95,6 +95,7 @@ class PassengerHistoryScreen extends StatelessWidget {
                       Text("srd ${(price as num).toStringAsFixed(2)}"),
                       if (rating != null)
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(Icons.star,
                                 size: 14, color: Colors.amber),
