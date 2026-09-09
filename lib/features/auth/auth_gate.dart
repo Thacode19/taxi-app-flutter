@@ -7,6 +7,7 @@ import '../driver/driver_request_screen.dart';
 import '../driver/pending_approval_screen.dart';
 import '../admin/dashboard_stub.dart';
 import 'login_screen.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -21,7 +22,7 @@ class AuthGate extends StatelessWidget {
         }
 
         final uid = authSnap.data!.uid;
-
+FirebaseCrashlytics.instance.setUserIdentifier(uid);
         // Listen live so a driver's screen updates automatically the
         // moment an admin approves/rejects them, without needing to
         // restart the app.
