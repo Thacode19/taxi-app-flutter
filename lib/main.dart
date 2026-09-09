@@ -26,6 +26,6 @@ void main() async {
   };
 
 
- // await NotificationService().init();
+  await NotificationService().init();
   runApp(const MyApp());
 }
