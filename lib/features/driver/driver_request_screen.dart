@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import '../../services/notification_service.dart';
 import 'driver_ride_control.dart';
+import 'ride_detail_screen.dart';
 import 'driver_history.dart';
 
 class DriverRequestScreen extends StatefulWidget {
@@ -20,7 +21,6 @@ class DriverRequestScreen extends StatefulWidget {
 }
 
 class _DriverRequestScreenState extends State<DriverRequestScreen> {
-  bool isAccepting = false;
   bool isCheckingRide = true;
 
   final Map<String, String> _addressCache = {};
@@ -129,57 +129,6 @@ class _DriverRequestScreenState extends State<DriverRequestScreen> {
     await FirebaseAuth.instance.signOut();
     if (!context.mounted) return;
     Navigator.popUntil(context, (route) => route.isFirst);
-  }
-
-  Future<bool> acceptRide(String rideId) async {
-    final rideRef = FirebaseFirestore.instance.collection('rides').doc(rideId);
-
-    try {
-      await FirebaseFirestore.instance.runTransaction((tx) async {
-        final snapshot = await tx.get(rideRef);
-
-        if (!snapshot.exists) throw Exception("Ride bestaat niet");
-
-        final data = snapshot.data() as Map<String, dynamic>;
-        if (data['status'] != 'searching') throw Exception("Ride al gepakt");
-
-        tx.update(rideRef, {
-          'status': 'accepted',
-          'driverId': widget.driverId,
-          'acceptedAt': FieldValue.serverTimestamp(),
-        });
-      });
-
-      return true;
-    } catch (e) {
-      debugPrint("Accept error: $e");
-      return false;
-    }
-  }
-
-  Future<void> handleAccept(BuildContext context, String rideId) async {
-    if (isAccepting) return;
-    setState(() => isAccepting = true);
-
-    final success = await acceptRide(rideId);
-
-    if (!mounted) return;
-
-    if (!success) {
-      setState(() => isAccepting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Rit is al door iemand anders gepakt")),
-      );
-      return;
-    }
-
-    // isAccepting blijft bewust 'true' tot aan de navigatie, zodat het
-    // scherm niet even terugflitst naar de normale dashboard-staat
-    // voordat we naar het rit-scherm gaan.
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => DriverRideControlScreen(rideId: rideId,driverId: widget.driverId)),
-    );
   }
 
   Future<void> _checkActiveRide() async {
@@ -302,86 +251,99 @@ class _DriverRequestScreenState extends State<DriverRequestScreen> {
 
                               return Card(
                                 margin: const EdgeInsets.all(10),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            "Rit ${i + 1}  •  $km km",
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
-                                            ),
-                                          ),
-                                          ElevatedButton(
-                                            onPressed: isAccepting
-                                                ? null
-                                                : () => handleAccept(context, ride.id),
-                                            child: isAccepting
-                                                ? const SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: Colors.white,
-                                                    ),
-                                                  )
-                                                : const Text("Pak Rit"),
-                                          ),
-                                        ],
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => RideDetailScreen(
+                                          rideId: ride.id,
+                                          driverId: widget.driverId,
+                                        ),
                                       ),
-                                      const SizedBox(height: 8),
-
-                                      if (pickup != null)
-                                        FutureBuilder<String>(
-                                          future: getAddress(pickup.latitude, pickup.longitude),
-                                          builder: (context, snap) {
-                                            final address = snap.data ?? 'Adres laden...';
-                                            return Row(
-                                              children: [
-                                                const Icon(Icons.person_pin_circle,
-                                                    color: Colors.blue, size: 18),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Text(
-                                                    address,
-                                                    style: const TextStyle(fontSize: 13),
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          },
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              "Rit ${i + 1}  •  $km km",
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                            const Icon(Icons.chevron_right,
+                                                color: Colors.black45),
+                                          ],
                                         ),
+                                        const SizedBox(height: 8),
 
-                                      const SizedBox(height: 4),
-
-                                      if (destination != null)
-                                        FutureBuilder<String>(
-                                          future: getAddress(destination.latitude, destination.longitude),
-                                          builder: (context, snap) {
-                                            final address = snap.data ?? 'Adres laden...';
-                                            return Row(
-                                              children: [
-                                                const Icon(Icons.location_on,
-                                                    color: Colors.red, size: 18),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Text(
-                                                    address,
-                                                    style: const TextStyle(fontSize: 13),
-                                                    overflow: TextOverflow.ellipsis,
+                                        if (pickup != null)
+                                          FutureBuilder<String>(
+                                            future: getAddress(
+                                                pickup.latitude, pickup.longitude),
+                                            builder: (context, snap) {
+                                              final address =
+                                                  snap.data ?? 'Adres laden...';
+                                              return Row(
+                                                children: [
+                                                  const Icon(
+                                                      Icons.person_pin_circle,
+                                                      color: Colors.blue,
+                                                      size: 18),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      address,
+                                                      style: const TextStyle(
+                                                          fontSize: 13),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
                                                   ),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        ),
-                                    ],
+                                                ],
+                                              );
+                                            },
+                                          ),
+
+                                        const SizedBox(height: 4),
+
+                                        if (destination != null)
+                                          FutureBuilder<String>(
+                                            future: getAddress(destination.latitude,
+                                                destination.longitude),
+                                            builder: (context, snap) {
+                                              final address =
+                                                  snap.data ?? 'Adres laden...';
+                                              return Row(
+                                                children: [
+                                                  const Icon(Icons.location_on,
+                                                      color: Colors.red,
+                                                      size: 18),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      address,
+                                                      style: const TextStyle(
+                                                          fontSize: 13),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               );

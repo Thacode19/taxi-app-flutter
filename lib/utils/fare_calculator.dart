@@ -3,14 +3,14 @@
 /// altijd dezelfde formule gebruiken.
 class FareCalculator {
   static const double baseFare = 3.0;
-  static const double perKm = 2.0;
-  static const double minimumFare = 5.0;
+  static const double perKm = 20.0;
+  static const double minimumFare = 50.0;
 
   // Wachttijd: gratis tot [freeWaitMinutes], daarna [perMinuteWaitRate]
   // per minuut. Telt vanaf het moment dat de chauffeur is gearriveerd
   // tot het moment dat de rit daadwerkelijk start.
-  static const int freeWaitMinutes = 3;
-  static const double perMinuteWaitRate = 3.0;
+  static const int freeWaitMinutes = 2;
+  static const double perMinuteWaitRate = 5.0;
 
   /// Schatting op basis van de geplande route-afstand (bij het zoeken/
   /// bestellen, vóór de rit is gestart).

@@ -1,5 +1,3 @@
-
-
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -66,6 +64,44 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     getLocation();
+    _checkActiveRide();
+  }
+
+  /// Als de passagier al een lopende rit heeft (in welke fase dan ook),
+  /// direct daarheen sturen in plaats van het zoekscherm te tonen. Dit
+  /// vangt precies het scenario op waarbij de app was afgesloten terwijl
+  /// een rit al geaccepteerd/gearriveerd/onderweg was.
+  Future<void> _checkActiveRide() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final existingRide = await FirebaseFirestore.instance
+          .collection('rides')
+          .where('passengerId', isEqualTo: user.uid)
+          .where('status',
+              whereIn: ['searching', 'accepted', 'arrived', 'started'])
+          .limit(1)
+          .get();
+
+      if (!mounted) return;
+
+      if (existingRide.docs.isNotEmpty) {
+        final rideId = existingRide.docs.first.id;
+        final existingStatus = existingRide.docs.first.data()['status'];
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => existingStatus == 'searching'
+                ? WaitingScreen(rideId: rideId)
+                : RideTrackingScreen(rideId: rideId),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Check active ride error: $e");
+    }
   }
 
   @override
@@ -210,7 +246,7 @@ class _MapScreenState extends State<MapScreen> {
     final existingRide = await FirebaseFirestore.instance
         .collection('rides')
         .where('passengerId', isEqualTo: user.uid)
-        .where('status', whereIn: ['searching', 'accepted'])
+        .where('status', whereIn: ['searching', 'accepted', 'arrived', 'started'])
         .limit(1)
         .get();
 
@@ -218,6 +254,7 @@ class _MapScreenState extends State<MapScreen> {
 
     if (existingRide.docs.isNotEmpty) {
       final rideId = existingRide.docs.first.id;
+      final existingStatus = existingRide.docs.first.data()['status'];
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Je hebt al een actieve rit")),
@@ -225,7 +262,11 @@ class _MapScreenState extends State<MapScreen> {
 
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => WaitingScreen(rideId: rideId)),
+        MaterialPageRoute(
+          builder: (_) => existingStatus == 'searching'
+              ? WaitingScreen(rideId: rideId)
+              : RideTrackingScreen(rideId: rideId),
+        ),
       );
       return;
     }
@@ -507,7 +548,7 @@ class _MapScreenState extends State<MapScreen> {
                 child: Text(
                   "Afstand: ${(routeDistance! / 1000).toStringAsFixed(2)} km"
                   " | Tijd: ${(routeDuration! / 60).toStringAsFixed(0)} min"
-                  "\nGeschatte prijs: srd ${FareCalculator.estimateFare(routeDistance! / 1000).toStringAsFixed(2)}"
+                  "\nGeschatte prijs: srd ${FareCalculator.estimateFare(routeDistance! / 1000).ceil()}"
                   " (excl. eventuele wachttijd)",
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontWeight: FontWeight.bold),
@@ -610,7 +651,15 @@ class WaitingScreen extends StatelessWidget {
             final data = snapshot.data!.data() as Map<String, dynamic>;
             final status = data['status'];
 
-            if (status == 'accepted') {
+            // Zodra de rit verder is dan 'searching' (geaccepteerd,
+            // gearriveerd, onderweg, of zelfs al voltooid als dat razendsnel
+            // ging terwijl het scherm dicht was), horen we niet meer hier
+            // te staan te wachten — RideTrackingScreen kan élke status
+            // correct tonen.
+            if (status == 'accepted' ||
+                status == 'arrived' ||
+                status == 'started' ||
+                status == 'completed') {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 Navigator.pushReplacement(
                   context,
