@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'driver_ride_control.dart';
 
@@ -27,6 +28,84 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
   bool isAccepting = false;
   List<LatLng> routePoints = [];
   String? lastRouteKey;
+
+  LatLng? driverLocation;
+  List<LatLng> driverToPickupRoute = [];
+  double? driverToPickupKm;
+  String? lastDriverRouteKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverLocation();
+  }
+
+  Future<void> _loadDriverLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        driverLocation = LatLng(position.latitude, position.longitude);
+      });
+    } catch (e) {
+      debugPrint("Driver location error: $e");
+    }
+  }
+
+  Future<void> fetchDriverToPickupRoute(LatLng driver, LatLng pickup) async {
+    final key = '${driver.latitude},${driver.longitude}-'
+        '${pickup.latitude},${pickup.longitude}';
+    if (key == lastDriverRouteKey) return;
+    lastDriverRouteKey = key;
+
+    try {
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${driver.longitude},${driver.latitude};'
+        '${pickup.longitude},${pickup.latitude}'
+        '?overview=full&geometries=geojson',
+      );
+
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final coords =
+            data['routes'][0]['geometry']['coordinates'] as List<dynamic>;
+        final points = coords
+            .map<LatLng>((c) => LatLng(
+                  (c[1] as num).toDouble(),
+                  (c[0] as num).toDouble(),
+                ))
+            .toList();
+        final distanceMeters =
+            (data['routes'][0]['distance'] as num).toDouble();
+
+        if (!mounted) return;
+        setState(() {
+          driverToPickupRoute = points;
+          driverToPickupKm = distanceMeters / 1000;
+        });
+        _fitAllPoints(pickup: pickup);
+      }
+    } catch (e) {
+      debugPrint("Driver route error: $e");
+    }
+  }
 
   Future<String> getAddress(double lat, double lng) async {
     final key = '$lat,$lng';
@@ -102,19 +181,30 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
         if (!mounted) return;
         setState(() => routePoints = points);
 
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final bounds = LatLngBounds.fromPoints([pickup, destination]);
-          mapController.fitCamera(
-            CameraFit.bounds(
-              bounds: bounds,
-              padding: const EdgeInsets.all(50),
-            ),
-          );
-        });
+        _fitAllPoints(pickup: pickup, destination: destination);
       }
     } catch (e) {
       debugPrint("Route error: $e");
     }
+  }
+
+  void _fitAllPoints({LatLng? pickup, LatLng? destination}) {
+    final points = <LatLng>[
+      if (driverLocation != null) driverLocation!,
+      if (pickup != null) pickup,
+      if (destination != null) destination,
+    ];
+    if (points.length < 2) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final bounds = LatLngBounds.fromPoints(points);
+      mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.all(50),
+        ),
+      );
+    });
   }
 
   Future<void> acceptRide(BuildContext context, String rideId) async {
@@ -229,6 +319,9 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
           if (pickupLatLng != null && destLatLng != null) {
             fetchRoute(pickupLatLng, destLatLng);
           }
+          if (driverLocation != null && pickupLatLng != null) {
+            fetchDriverToPickupRoute(driverLocation!, pickupLatLng);
+          }
 
           return Column(
             children: [
@@ -248,6 +341,16 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
                                 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.zizzr.app',
                           ),
+                          if (driverToPickupRoute.isNotEmpty)
+                            PolylineLayer(
+                              polylines: [
+                                Polyline(
+                                  points: driverToPickupRoute,
+                                  strokeWidth: 4,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            ),
                           if (routePoints.isNotEmpty)
                             PolylineLayer(
                               polylines: [
@@ -260,6 +363,14 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
                             ),
                           MarkerLayer(
                             markers: [
+                              if (driverLocation != null)
+                                Marker(
+                                  point: driverLocation!,
+                                  width: 50,
+                                  height: 50,
+                                  child: const Icon(Icons.local_taxi,
+                                      color: Colors.black, size: 32),
+                                ),
                               Marker(
                                 point: pickupLatLng,
                                 width: 60,
@@ -286,9 +397,37 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (driverToPickupKm != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.local_taxi,
+                                  size: 16, color: Colors.black87),
+                              const SizedBox(width: 6),
+                              Text(
+                                "${driverToPickupKm!.toStringAsFixed(2)} km tot ophaalpunt",
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (driverLocation == null)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 6),
+                          child: Text(
+                            "Jouw locatie wordt bepaald...",
+                            style: TextStyle(
+                                fontSize: 13, color: Colors.black45),
+                          ),
+                        ),
                       if (distanceKm != null)
                         Text(
-                          "${distanceKm.toStringAsFixed(2)} km",
+                          "Rit: ${distanceKm.toStringAsFixed(2)} km",
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,

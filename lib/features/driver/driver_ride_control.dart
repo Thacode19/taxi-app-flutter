@@ -360,7 +360,9 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
       appBar: AppBar(
         title: const Text("Rit Beheren"),
         automaticallyImplyLeading: false,
@@ -602,6 +604,7 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
             ),
           );
         },
+      ),
       ),
     );
   }
