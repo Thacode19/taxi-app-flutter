@@ -26,8 +26,6 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
   final Map<String, String> _addressCache = {};
 
   bool isAccepting = false;
-  List<LatLng> routePoints = [];
-  String? lastRouteKey;
 
   LatLng? driverLocation;
   List<LatLng> driverToPickupRoute = [];
@@ -67,6 +65,7 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
     }
   }
 
+  /// Enige route die we tonen: van de chauffeur naar het ophaalpunt.
   Future<void> fetchDriverToPickupRoute(LatLng driver, LatLng pickup) async {
     final key = '${driver.latitude},${driver.longitude}-'
         '${pickup.latitude},${pickup.longitude}';
@@ -100,7 +99,16 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
           driverToPickupRoute = points;
           driverToPickupKm = distanceMeters / 1000;
         });
-        _fitAllPoints(pickup: pickup);
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final bounds = LatLngBounds.fromPoints([driver, pickup]);
+          mapController.fitCamera(
+            CameraFit.bounds(
+              bounds: bounds,
+              padding: const EdgeInsets.all(50),
+            ),
+          );
+        });
       }
     } catch (e) {
       debugPrint("Driver route error: $e");
@@ -150,61 +158,6 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
     }
 
     return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
-  }
-
-  Future<void> fetchRoute(LatLng pickup, LatLng destination) async {
-    final key = '${pickup.latitude},${pickup.longitude}-'
-        '${destination.latitude},${destination.longitude}';
-    if (key == lastRouteKey) return;
-    lastRouteKey = key;
-
-    try {
-      final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/'
-        '${pickup.longitude},${pickup.latitude};'
-        '${destination.longitude},${destination.latitude}'
-        '?overview=full&geometries=geojson',
-      );
-
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final coords =
-            data['routes'][0]['geometry']['coordinates'] as List<dynamic>;
-        final points = coords
-            .map<LatLng>((c) => LatLng(
-                  (c[1] as num).toDouble(),
-                  (c[0] as num).toDouble(),
-                ))
-            .toList();
-
-        if (!mounted) return;
-        setState(() => routePoints = points);
-
-        _fitAllPoints(pickup: pickup, destination: destination);
-      }
-    } catch (e) {
-      debugPrint("Route error: $e");
-    }
-  }
-
-  void _fitAllPoints({LatLng? pickup, LatLng? destination}) {
-    final points = <LatLng>[
-      if (driverLocation != null) driverLocation!,
-      if (pickup != null) pickup,
-      if (destination != null) destination,
-    ];
-    if (points.length < 2) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final bounds = LatLngBounds.fromPoints(points);
-      mapController.fitCamera(
-        CameraFit.bounds(
-          bounds: bounds,
-          padding: const EdgeInsets.all(50),
-        ),
-      );
-    });
   }
 
   Future<void> acceptRide(BuildContext context, String rideId) async {
@@ -316,9 +269,7 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
               ? LatLng(destination.latitude, destination.longitude)
               : null;
 
-          if (pickupLatLng != null && destLatLng != null) {
-            fetchRoute(pickupLatLng, destLatLng);
-          }
+          // Enige route die opgehaald/getoond wordt: chauffeur -> ophaalpunt.
           if (driverLocation != null && pickupLatLng != null) {
             fetchDriverToPickupRoute(driverLocation!, pickupLatLng);
           }
@@ -351,16 +302,6 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
                                 ),
                               ],
                             ),
-                          if (routePoints.isNotEmpty)
-                            PolylineLayer(
-                              polylines: [
-                                Polyline(
-                                  points: routePoints,
-                                  strokeWidth: 4,
-                                  color: Colors.green,
-                                ),
-                              ],
-                            ),
                           MarkerLayer(
                             markers: [
                               if (driverLocation != null)
@@ -378,14 +319,6 @@ class _RideDetailScreenState extends State<RideDetailScreen> {
                                 child: const Icon(Icons.person_pin_circle,
                                     color: Colors.blue, size: 40),
                               ),
-                              if (destLatLng != null)
-                                Marker(
-                                  point: destLatLng,
-                                  width: 60,
-                                  height: 60,
-                                  child: const Icon(Icons.location_on,
-                                      color: Colors.red, size: 40),
-                                ),
                             ],
                           ),
                         ],

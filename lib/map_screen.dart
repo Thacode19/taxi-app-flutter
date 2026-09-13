@@ -464,6 +464,7 @@ class _MapScreenState extends State<MapScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         onTap: () {
+                          FocusScope.of(context).unfocus();
                           final location = LatLng(item.lat, item.lon);
                           searchedLocation = location;
                           results.clear();
@@ -494,16 +495,17 @@ class _MapScreenState extends State<MapScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.taxi_passenger',
+                urlTemplate:
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.zizzr.app',
               ),
               PolylineLayer(
                 polylines: [
                   if (routePoints.isNotEmpty)
                     Polyline(
                       points: routePoints,
-                      strokeWidth: 4,
-                      color: Colors.green,
+                      strokeWidth: 5,
+                      color: Colors.blueAccent,
                     ),
                 ],
               ),
@@ -516,7 +518,7 @@ class _MapScreenState extends State<MapScreen> {
                     child: const Icon(
                       Icons.person_pin_circle,
                       size: 40,
-                      color: Colors.blue,
+                      color: Colors.indigo,
                     ),
                   ),
                   if (searchedLocation != null)
@@ -527,7 +529,7 @@ class _MapScreenState extends State<MapScreen> {
                       child: const Icon(
                         Icons.location_on,
                         size: 40,
-                        color: Colors.red,
+                        color: Colors.redAccent,
                       ),
                     ),
                 ],
@@ -544,6 +546,13 @@ class _MapScreenState extends State<MapScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.95),
                   borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Text(
                   "Afstand: ${(routeDistance! / 1000).toStringAsFixed(2)} km"
@@ -551,7 +560,7 @@ class _MapScreenState extends State<MapScreen> {
                   "\nGeschatte prijs: srd ${FareCalculator.estimateFare(routeDistance! / 1000).ceil()}"
                   " (excl. eventuele wachttijd)",
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
                 ),
               ),
             ),
@@ -566,7 +575,7 @@ class _MapScreenState extends State<MapScreen> {
                 child: isOrdering
                     ? const CircularProgressIndicator()
                     : const Text("Bestel Taxi",
-                        style: TextStyle(fontSize: 18)),
+                        style: TextStyle(fontSize: 18,  fontWeight: FontWeight.bold)),
               ),
             ),
           ),

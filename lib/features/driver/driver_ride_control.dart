@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import '../../utils/fare_calculator.dart';
 import 'driver_request_screen.dart';
 
@@ -34,6 +38,12 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
 
   Position? _lastMeterPosition;
   double _liveDistanceKm = 0;
+
+  // Kaart: eigen live positie + route, wisselt mee per status.
+  final MapController mapController = MapController();
+  LatLng? myPosition;
+  List<LatLng> routePoints = [];
+  String? lastRouteKey;
 
   @override
   void initState() {
@@ -71,6 +81,12 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
         distanceFilter: 10,
       ),
     ).listen((pos) async {
+      // Live kaart-marker: bij elke positie-update bijwerken, ongeacht
+      // de Firestore-schrijffrequentie hieronder.
+      if (mounted) {
+        setState(() => myPosition = LatLng(pos.latitude, pos.longitude));
+      }
+
       // Kilometerteller: alleen optellen als de rit 'started' is EN er
       // niet op dit moment een wachtpauze loopt (bijv. tussenstop).
       if (_rideStatus == 'started' && !_isWaiting) {
@@ -114,6 +130,44 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
         }
       }
     });
+  }
+
+  /// Route op de kaart: verandert mee met de fase van de rit.
+  /// - accepted: van jouw positie naar het ophaalpunt
+  /// - arrived:  van ophaalpunt naar bestemming (voorbeeld van de rit)
+  /// - started:  van jouw (live) positie naar de bestemming
+  Future<void> fetchRoute(LatLng start, LatLng end) async {
+    final key = '${start.latitude},${start.longitude}-'
+        '${end.latitude},${end.longitude}';
+    if (key == lastRouteKey) return;
+    lastRouteKey = key;
+
+    try {
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${start.longitude},${start.latitude};'
+        '${end.longitude},${end.latitude}'
+        '?overview=full&geometries=geojson',
+      );
+
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final coords =
+            data['routes'][0]['geometry']['coordinates'] as List<dynamic>;
+        final points = coords
+            .map<LatLng>((c) => LatLng(
+                  (c[1] as num).toDouble(),
+                  (c[0] as num).toDouble(),
+                ))
+            .toList();
+
+        if (!mounted) return;
+        setState(() => routePoints = points);
+      }
+    } catch (e) {
+      debugPrint("Route error: $e");
+    }
   }
 
   void _goToDashboard() {
@@ -190,6 +244,9 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
 
       _rideStatus = status;
       _isWaiting = update['isWaiting'] == true;
+      // Nieuwe fase, dus de route moet opnieuw opgehaald worden.
+      lastRouteKey = null;
+      routePoints = [];
 
       await rideRef.update(update);
 
@@ -218,7 +275,7 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
         await liveGps?.cancel();
         liveGps = null;
         if (!mounted) return;
-        _goToDashboard();
+        //_goToDashboard();
         return;
       }
     } catch (e) {
@@ -363,248 +420,351 @@ class _DriverRideControlScreenState extends State<DriverRideControlScreen> {
     return PopScope(
       canPop: false,
       child: Scaffold(
-      appBar: AppBar(
-        title: const Text("Rit Beheren"),
-        automaticallyImplyLeading: false,
-      ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('rides')
-            .doc(widget.rideId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        appBar: AppBar(
+          title: const Text("Rit Beheren"),
+          automaticallyImplyLeading: false,
+        ),
+        body: StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('rides')
+              .doc(widget.rideId)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              //return const Center(child: CircularProgressIndicator());
+            }
 
-          if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text("Rit niet gevonden"));
-          }
+            if (!snapshot.hasData || !snapshot.data!.exists) {
+              return const Center(child: Text("Rit niet gevonden"));
+            }
 
-          final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
-          final status = data['status'] as String? ?? 'unknown';
-          final bool isFinished = status == 'completed' || status == 'cancelled';
+            final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
+            final status = data['status'] as String? ?? 'unknown';
+            final bool isFinished = status == 'completed' || status == 'cancelled';
 
-          _rideStatus = status;
-          _isWaiting = data['isWaiting'] == true;
+            _rideStatus = status;
+            _isWaiting = data['isWaiting'] == true;
 
-          final liveDistanceKm = (data['liveDistanceKm'] as num?)?.toDouble();
-          final liveFare = (data['liveFare'] as num?)?.toDouble();
-          final finalPrice = (data['finalPrice'] as num?)?.toDouble();
-          final storedWaitCost = (data['waitCost'] as num?)?.toDouble() ?? 0;
-          final totalWaitSeconds =
-              (data['totalWaitSeconds'] as num?)?.toDouble() ?? 0;
-          final currentWaitStartedAt =
-              data['currentWaitStartedAt'] as Timestamp?;
+            final liveDistanceKm = (data['liveDistanceKm'] as num?)?.toDouble();
+            final liveFare = (data['liveFare'] as num?)?.toDouble();
+            final finalPrice = (data['finalPrice'] as num?)?.toDouble();
+            final storedWaitCost = (data['waitCost'] as num?)?.toDouble() ?? 0;
+            final totalWaitSeconds =
+                (data['totalWaitSeconds'] as num?)?.toDouble() ?? 0;
+            final currentWaitStartedAt =
+                data['currentWaitStartedAt'] as Timestamp?;
 
-          // Live stopwatch: totale wachttijd tot nu toe (al afgesloten
-          // periodes + eventuele lopende periode).
-          double liveWaitSeconds = totalWaitSeconds;
-          if (_isWaiting && currentWaitStartedAt != null) {
-            liveWaitSeconds += DateTime.now()
-                .difference(currentWaitStartedAt.toDate())
-                .inSeconds;
-          }
-          final liveWaitCost = FareCalculator.calculateWaitCost(
-            Duration(seconds: liveWaitSeconds.round()),
-          );
+            // Live stopwatch: totale wachttijd tot nu toe (al afgesloten
+            // periodes + eventuele lopende periode).
+            double liveWaitSeconds = totalWaitSeconds;
+            if (_isWaiting && currentWaitStartedAt != null) {
+              liveWaitSeconds += DateTime.now()
+                  .difference(currentWaitStartedAt.toDate())
+                  .inSeconds;
+            }
+            final liveWaitCost = FareCalculator.calculateWaitCost(
+              Duration(seconds: liveWaitSeconds.round()),
+            );
 
-          Widget? actionBtn;
-          if (status == 'accepted') {
-            actionBtn = _actionButton("Ik ben gearriveerd", "arrived", Colors.blue);
-          } else if (status == 'arrived') {
-            actionBtn = _actionButton("Start Rit", "started", Colors.green);
-          } else if (status == 'started' && !_isWaiting) {
-            actionBtn = _actionButton("Voltooi Rit", "completed", Colors.green.shade700);
-          }
+            // ===============================
+            // KAART-DATA: pickup/bestemming + route per fase
+            // ===============================
+            final pickup = data['pickup'] as GeoPoint?;
+            final destination = data['destination'] as GeoPoint?;
+            final pickupPos = pickup != null
+                ? LatLng(pickup.latitude, pickup.longitude)
+                : null;
+            final destinationPos = destination != null
+                ? LatLng(destination.latitude, destination.longitude)
+                : null;
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            if (!isFinished) {
+              if (status == 'accepted' &&
+                  myPosition != null &&
+                  pickupPos != null) {
+                fetchRoute(myPosition!, pickupPos);
+              } else if (status == 'arrived' &&
+                  pickupPos != null &&
+                  destinationPos != null) {
+                fetchRoute(pickupPos, destinationPos);
+              } else if (status == 'started' &&
+                  myPosition != null &&
+                  destinationPos != null) {
+                fetchRoute(myPosition!, destinationPos);
+              }
+            }
+
+            Widget? actionBtn;
+            if (status == 'accepted') {
+              actionBtn = _actionButton("Ik ben gearriveerd", "arrived", Colors.blue);
+            } else if (status == 'arrived') {
+              actionBtn = _actionButton("Start Rit", "started", Colors.green);
+            } else if (status == 'started' && !_isWaiting) {
+              actionBtn = _actionButton("Voltooi Rit", "completed", Colors.green.shade700);
+            }
+
+            return Column(
               children: [
-                const Icon(Icons.local_taxi, size: 90),
-                const SizedBox(height: 20),
-
-                Text(
-                  "Status: ${_statusLabel(status)}",
-                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                ),
-
-                if (status == 'unknown')
-                  const Padding(
-                    padding: EdgeInsets.only(top: 10),
-                    child: Text(
-                      "Onbekende ritstatus. Neem contact op met support.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.orange),
-                    ),
-                  ),
-
-                // Live stopwatch, zichtbaar tijdens elke wachtperiode
-                // (aankomst-wacht óf een tussenstop tijdens de rit).
-                if (_isWaiting && !isFinished) ...[
-                  const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.orange),
-                    ),
-                    child: Column(
+                if (!isFinished)
+                  SizedBox(
+                    height: 240,
+                    child: FlutterMap(
+                      mapController: mapController,
+                      options: MapOptions(
+                        initialCenter: myPosition ??
+                            pickupPos ??
+                            destinationPos ??
+                            const LatLng(5.852, -55.203), // Paramaribo fallback
+                        initialZoom: 14,
+                      ),
                       children: [
-                        const Text(
-                          "Wachttijd",
-                          style: TextStyle(color: Colors.black54),
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.zizzr.app',
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _formatDuration(
-                            Duration(seconds: liveWaitSeconds.round()),
+                        if (routePoints.isNotEmpty)
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: routePoints,
+                                strokeWidth: 4,
+                                color: status == 'started'
+                                    ? Colors.green
+                                    : Colors.blue,
+                              ),
+                            ],
                           ),
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            fontFeatures: [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                        Text(
-                          liveWaitCost > 0
-                              ? "Wachtgeld: srd ${liveWaitCost.toStringAsFixed(2)}"
-                              : "Nog binnen gratis ${FareCalculator.freeWaitMinutes} min",
-                          style: TextStyle(
-                            color: liveWaitCost > 0
-                                ? Colors.orange.shade800
-                                : Colors.black54,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        MarkerLayer(
+                          markers: [
+                            if (myPosition != null)
+                              Marker(
+                                point: myPosition!,
+                                width: 50,
+                                height: 50,
+                                child: const Icon(Icons.local_taxi,
+                                    color: Colors.black, size: 34),
+                              ),
+                            // Ophaalpunt: tonen zolang je er nog niet
+                            // voorbij bent (accepted/arrived).
+                            if (pickupPos != null &&
+                                (status == 'accepted' || status == 'arrived'))
+                              Marker(
+                                point: pickupPos,
+                                width: 55,
+                                height: 55,
+                                child: const Icon(Icons.person_pin_circle,
+                                    color: Colors.blue, size: 38),
+                              ),
+                            // Bestemming: relevant vanaf 'arrived' (voorbeeld
+                            // van de rit) en tijdens 'started' (live).
+                            if (destinationPos != null &&
+                                (status == 'arrived' || status == 'started'))
+                              Marker(
+                                point: destinationPos,
+                                width: 55,
+                                height: 55,
+                                child: const Icon(Icons.location_on,
+                                    color: Colors.red, size: 38),
+                              ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                ],
-
-                // Live kilometerteller, zichtbaar zodra de rit gestart is
-                if (status == 'started' && liveDistanceKm != null) ...[
-                  const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _isWaiting ? Colors.grey.shade200 : Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _isWaiting ? Colors.grey : Colors.green,
-                      ),
-                    ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
                     child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        if (isFinished) ...[
+                          const Icon(Icons.local_taxi, size: 90),
+                          const SizedBox(height: 20),
+                        ],
+
                         Text(
-                          _isWaiting ? "Live meter (gepauzeerd)" : "Live meter",
-                          style: const TextStyle(color: Colors.black54),
+                          "Status: ${_statusLabel(status)}",
+                          style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "${liveDistanceKm.toStringAsFixed(2)} km",
-                          style: const TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.bold,
+
+                        if (status == 'unknown')
+                          const Padding(
+                            padding: EdgeInsets.only(top: 10),
+                            child: Text(
+                              "Onbekende ritstatus. Neem contact op met support.",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.orange),
+                            ),
                           ),
-                        ),
-                        if (liveFare != null)
+
+                        // Live stopwatch, zichtbaar tijdens elke wachtperiode
+                        // (aankomst-wacht óf een tussenstop tijdens de rit).
+                        if (_isWaiting && !isFinished) ...[
+                          const SizedBox(height: 20),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.orange),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text(
+                                  "Wachttijd",
+                                  style: TextStyle(color: Colors.black54),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _formatDuration(
+                                    Duration(seconds: liveWaitSeconds.round()),
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                    fontFeatures: [FontFeature.tabularFigures()],
+                                  ),
+                                ),
+                                Text(
+                                  liveWaitCost > 0
+                                      ? "Wachtgeld: srd ${liveWaitCost.toStringAsFixed(2)}"
+                                      : "Nog binnen gratis ${FareCalculator.freeWaitMinutes} min",
+                                  style: TextStyle(
+                                    color: liveWaitCost > 0
+                                        ? Colors.orange.shade800
+                                        : Colors.black54,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        // Live kilometerteller, zichtbaar zodra de rit gestart is
+                        if (status == 'started' && liveDistanceKm != null) ...[
+                          const SizedBox(height: 20),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: _isWaiting ? Colors.grey.shade200 : Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _isWaiting ? Colors.grey : Colors.green,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  _isWaiting ? "Live meter (gepauzeerd)" : "Live meter",
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  "${liveDistanceKm.toStringAsFixed(2)} km",
+                                  style: const TextStyle(
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (liveFare != null)
+                                  Text(
+                                    "srd ${liveFare.toStringAsFixed(2)}",
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      color: _isWaiting ? Colors.black45 : Colors.green,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        if (isFinished && finalPrice != null) ...[
+                          const SizedBox(height: 16),
                           Text(
-                            "srd ${liveFare.toStringAsFixed(2)}",
-                            style: TextStyle(
-                              fontSize: 20,
-                              color: _isWaiting ? Colors.black45 : Colors.green,
-                              fontWeight: FontWeight.bold,
+                            "Totaal: srd ${finalPrice.toStringAsFixed(2)}",
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          if (storedWaitCost > 0)
+                            Text(
+                              "(waarvan srd ${storedWaitCost.toStringAsFixed(2)} wachtgeld)",
+                              style: const TextStyle(color: Colors.black54),
+                            ),
+                        ],
+
+                        const SizedBox(height: 30),
+
+                        if (actionBtn != null) actionBtn,
+
+                        // Wachten/hervatten-knop — alleen tijdens een lopende rit
+                        if (status == 'started') ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.orange.shade800,
+                                side: BorderSide(color: Colors.orange.shade800),
+                              ),
+                              onPressed: isTogglingWait ? null : toggleMidRideWait,
+                              icon: Icon(_isWaiting ? Icons.play_arrow : Icons.pause),
+                              label: Text(
+                                _isWaiting
+                                    ? "Doorgaan (tussenstop klaar)"
+                                    : "Wachten (tussenstop passagier)",
+                              ),
                             ),
                           ),
+                        ],
+
+                        if (isFinished) ...[
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 55,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+                              onPressed: _goToDashboard,
+                              icon: const Icon(Icons.dashboard, color: Colors.white),
+                              label: const Text(
+                                "Terug naar Dashboard",
+                                style: TextStyle(fontSize: 18, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        if (!isFinished) ...[
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 55,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                              onPressed: isCancelling ? null : cancelRide,
+                              child: isCancelling
+                                  ? const CircularProgressIndicator(color: Colors.white)
+                                  : const Text(
+                                      "Annuleer Rit",
+                                      style: TextStyle(fontSize: 18, color: Colors.white),
+                                    ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                ],
-
-                if (isFinished && finalPrice != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    "Totaal: srd ${finalPrice.toStringAsFixed(2)}",
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  if (storedWaitCost > 0)
-                    Text(
-                      "(waarvan srd ${storedWaitCost.toStringAsFixed(2)} wachtgeld)",
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                ],
-
-                const SizedBox(height: 30),
-
-                if (actionBtn != null) actionBtn,
-
-                // Wachten/hervatten-knop — alleen tijdens een lopende rit
-                if (status == 'started') ...[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.orange.shade800,
-                        side: BorderSide(color: Colors.orange.shade800),
-                      ),
-                      onPressed: isTogglingWait ? null : toggleMidRideWait,
-                      icon: Icon(_isWaiting ? Icons.play_arrow : Icons.pause),
-                      label: Text(
-                        _isWaiting
-                            ? "Doorgaan (tussenstop klaar)"
-                            : "Wachten (tussenstop passagier)",
-                      ),
-                    ),
-                  ),
-                ],
-
-                if (isFinished) ...[
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
-                      onPressed: _goToDashboard,
-                      icon: const Icon(Icons.dashboard, color: Colors.white),
-                      label: const Text(
-                        "Terug naar Dashboard",
-                        style: TextStyle(fontSize: 18, color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ],
-
-                if (!isFinished) ...[
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                      onPressed: isCancelling ? null : cancelRide,
-                      child: isCancelling
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text(
-                              "Annuleer Rit",
-                              style: TextStyle(fontSize: 18, color: Colors.white),
-                            ),
-                    ),
-                  ),
-                ],
+                ),
               ],
-            ),
-          );
-        },
-      ),
+            );
+          },
+        ),
       ),
     );
   }
