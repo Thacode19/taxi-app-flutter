@@ -401,7 +401,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                   TileLayer(
                     urlTemplate:
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.taxi_passenger',
+                    userAgentPackageName: 'com.zizzr.app',
                   ),
                   PolylineLayer(
                     polylines: [
